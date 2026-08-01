@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+/* ============================================================
+   BRAND TOKENS -- set these from the brand's real site/assets.
+   Everything else in this file should reference these variables,
+   not hardcoded colors/fonts, so re-skinning for a different
+   brand is a find-and-replace of this block plus the copy below.
+   ============================================================ */
+:root{
+  --ink:#0A0A0B;        /* primary dark / text-on-light */
+  --paper:#F4F1EA;      /* primary light background */
+  --signal:#FF3300;      /* brand accent color -- pull from the site's
+                            theme-color meta tag or CSS if present */
+  --mute:#6B6B70;
+}
+
+/* Load real brand fonts via @fontsource (npm) rather than guessing --
+   see references/scene_architecture.md "Fonts" section. Fall back to
+   solid system fonts only if the brand's actual font can't be sourced. */
+@font-face{font-family:'Display';src:url('fonts/display-900.woff2') format('woff2');font-weight:900}
+@font-face{font-family:'Body';src:url('fonts/body-500.woff2') format('woff2');font-weight:500}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1920px;overflow:hidden;background:var(--ink)}
+body{font-family:'Body',sans-serif;-webkit-font-smoothing:antialiased}
+#stage{position:relative;width:1080px;height:1920px;overflow:hidden}
+.scene{position:absolute;inset:0;display:none;padding:0 84px}
+.scene.on{display:block}
+
+/* SAFE AREA -- keep all real content inside this box. 1080x1920 is the
+   full canvas but platform UI (captions, profile info, buttons) covers
+   the top ~150px and bottom ~260px on Reels/TikTok/Shorts. */
+.safe{position:absolute;left:84px;right:84px;top:380px;height:1080px;z-index:2}
+
+.huge{font:900 120px/0.95 'Display';letter-spacing:-.04em;text-transform:uppercase}
+.body{font:500 34px/1.42 'Body';letter-spacing:-.01em}
+
+#grain{position:absolute;inset:-100px;z-index:60;opacity:.055;pointer-events:none;
+  background-repeat:repeat;mix-blend-mode:overlay}
+#wipe{position:absolute;inset:0;z-index:70;background:var(--signal);display:none}
+</style></head>
+<body>
+<div id="stage">
+
+  <!-- SCENE 1: hook. Duplicate this <div class="scene"> block per beat --
+       add as many scenes as the script needs (5-8 is typical for a
+       fast-paced 20-35s Reel). Give each a unique id (s1, s2, s3...). -->
+  <div class="scene" id="s1"><div class="bg" style="position:absolute;inset:0;background:var(--ink)"></div>
+    <div class="safe">
+      <div class="huge" id="s1h" style="color:#fff"></div>
+    </div>
+  </div>
+
+  <!-- SCENE 2: brand reveal -->
+  <div class="scene" id="s2"><div class="bg" style="position:absolute;inset:0;background:var(--paper)"></div>
+    <div class="safe">
+      <img id="s2logo" style="display:block;width:380px;margin-top:150px;opacity:0">
+    </div>
+  </div>
+
+  <!-- SCENE 3: CTA -->
+  <div class="scene" id="s3"><div class="bg" style="position:absolute;inset:0;background:var(--ink)"></div>
+    <div class="safe">
+      <div class="body" id="s3cta" style="color:#fff"></div>
+    </div>
+  </div>
+
+  <div id="grain"></div>
+  <div id="wipe"></div>
+</div>
+
+<script>
+/* ---------- deterministic noise texture, generated once with a fixed
+   seed so every re-render of the same frame is pixel-identical ---------- */
+(function(){
+  let s=1337; const rnd=()=>((s=(s*1664525+1013904223)>>>0)/4294967296);
+  const c=document.createElement('canvas'); c.width=c.height=180;
+  const x=c.getContext('2d'), d=x.createImageData(180,180);
+  for(let i=0;i<d.data.length;i+=4){const v=rnd()*255; d.data[i]=d.data[i+1]=d.data[i+2]=v; d.data[i+3]=255;}
+  x.putImageData(d,0,0);
+  document.getElementById('grain').style.backgroundImage='url('+c.toDataURL()+')';
+})();
+
+/* ---------- easing ---------- */
+const cl=(v,a,b)=>Math.max(a,Math.min(b,v));
+const outExpo=t=>t>=1?1:1-Math.pow(2,-11*t);
+const outBack=t=>{const c1=1.9,c3=c1+1;return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2);};
+
+function riseIn(el,p,dy){
+  const e=outExpo(p);
+  el.style.opacity = p<=0 ? 0 : e;
+  el.style.transform = `translateY(${(1-e)*dy}px)`;
+}
+
+/* ---------- word-by-word text reveal ----------
+   IMPORTANT GOTCHA: never build the source string with raw inline HTML
+   tags that contain spaces in their attributes, e.g.
+     'Hook line <b style="color:#FF3300">7:42 PM</b>'
+   split(' ') will cut the tag itself in half and the broken markup will
+   render as literal visible text. Use a **word** marker per accented
+   word instead -- each marker only ever wraps a single space-free token,
+   so the split can never land inside a tag. See references/scene_architecture.md. */
+function words(el, txt){
+  el.innerHTML = txt.split('|').map(line =>
+    line.trim().split(' ').map(raw => {
+      const m = raw.match(/^\*\*(.+)\*\*$/);
+      const content = m ? `<b style="color:var(--signal)">${m[1]}</b>` : raw;
+      return `<span class="w">${content}</span>`;
+    }).join(' ')
+  ).join('<br>');
+  return [...el.querySelectorAll('.w')];
+}
+
+const S1W = words(document.getElementById('s1h'), 'Replace this|with your **hook** line');
+document.getElementById('s3cta').textContent = 'Replace with your CTA line';
+
+/* If the logo is a raster file (PNG/JPG) the user uploaded, embed it as a
+   base64 data: URI (see references/scene_architecture.md "Logo handling")
+   so this HTML stays a single self-contained file:
+     document.getElementById('s2logo').src = 'data:image/png;base64,...';
+   Auto-crop any padding out of the source image first -- app-icon exports
+   almost always ship with a transparent/white margin around the mark. */
+
+/* ---------- scene table ----------
+   t0/t1 in seconds. If you're syncing to voice-over, these numbers come
+   straight out of build_vo_track.py's vo_summary.json (t0/t1 per segment)
+   -- don't hand-tune them separately from the audio. */
+const SC = [
+  {el:'s1', t0:0.0, t1:3.0},
+  {el:'s2', t0:3.0, t1:6.0},
+  {el:'s3', t0:6.0, t1:9.0},
+];
+const DURATION = SC[SC.length-1].t1;
+const $ = id => document.getElementById(id);
+
+window.render = function(t){
+  t = cl(t, 0, DURATION);
+
+  let cur = null;
+  for (const s of SC){
+    const on = t >= s.t0 && t < s.t1;
+    const el = $(s.el);
+    if (on){ el.classList.add('on'); cur = s; } else el.classList.remove('on');
+  }
+  if (!cur){ cur = SC[SC.length-1]; $(cur.el).classList.add('on'); }
+  const lt = t - cur.t0; // seconds elapsed within the current scene
+
+  if (cur.el === 's1'){
+    S1W.forEach((w,i) => {
+      const q = cl((lt - i*0.12 - 0.15) / 0.35, 0, 1);
+      w.style.opacity = q;
+      w.style.transform = `translateY(${(1-outBack(q))*50}px)`;
+    });
+  }
+
+  if (cur.el === 's2'){
+    const q = cl(lt/0.55, 0, 1), e = outBack(q);
+    const logo = $('s2logo');
+    logo.style.opacity = q;
+    logo.style.transform = `scale(${0.72+e*0.28})`;
+  }
+
+  if (cur.el === 's3'){
+    riseIn($('s3cta'), cl(lt/0.5,0,1), 30);
+  }
+
+  /* deterministic grain drift, quantised to the frame so re-renders match */
+  const f = Math.round(t*30);
+  $('grain').style.backgroundPosition = `${(f*37)%180}px ${(f*61)%180}px`;
+
+  /* brand-colored wipe across every scene cut */
+  const W = $('wipe'); let shown=false;
+  for (let i=1; i<SC.length; i++){
+    const tb = SC[i].t0, half = 0.13;
+    if (t > tb-half && t < tb+half){
+      const ph = (t-(tb-half)) / (2*half);
+      const y = ph < 0.5 ? (1-Math.pow(1-ph*2,2))*100 : -(1-Math.pow(1-(ph-0.5)*2,5))*100;
+      W.style.display='block'; W.style.transform=`translateY(${y}%)`;
+      shown=true;
+    }
+  }
+  if (!shown) W.style.display='none';
+};
+window.render(0);
+</script></body></html>
