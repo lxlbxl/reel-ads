@@ -166,9 +166,70 @@ gray, etc.). Nothing else in the file should hardcode a hex color or a
 font name directly -- this is what makes re-skinning the same scene
 structure for a different brand a quick edit instead of a rewrite.
 
-Pull the accent color from the brand's actual site when there is one --
-`meta theme-color` in the page head is a fast, reliable source; failing
-that, sample it from a provided logo or ask.
+### Where to get each token — in priority order
+
+| Token | Primary source | Fallback |
+|-------|---------------|----------|
+| `--signal` (accent) | `<meta name="theme-color" content="...">` on the brand's live site | Most frequent non-neutral hex from `grep -oE '#[0-9a-fA-F]{3,8}'` on the site HTML |
+| `--ink` (dark bg) | Dark background from site CSS (`background`, `bg-` Tailwind classes) | `#050505` for dark-themed sites, `#0A0A0B` as neutral fallback |
+| `--paper` (light bg) | Light background from site CSS or `#F4F1EA`-style warm off-white | `#F4F1EA` |
+| `--mute` (secondary text) | Muted color declarations in site CSS, or derive from `--ink` at 50% opacity | `#6B6B70` |
+
+### Logo extraction from the site
+
+The brand's logo is almost always available at one of these URLs on
+their own domain:
+
+```
+https://<domain>/favicon.ico
+https://<domain>/favicon-32.png
+https://<domain>/apple-touch-icon.png
+https://<domain>/assets/logo.png
+https://<domain>/assets/og-image.jpg        (often contains the wordmark)
+<meta property="og:image" content="...">     (check the HTML meta tags)
+<link rel="icon" href="...">                 (check the <head> for favicon paths)
+```
+
+Fetch the logo URL **before building the scene HTML**. Then:
+1. Crop padding (see Logo handling script below)
+2. Downscale to ~800px on the long edge
+3. Base64-embed into the HTML (see steps 1-2 in this section)
+
+If no logo URL is found on the site, **ask the user** — do not proceed
+without one. A video without the brand's logo is just generic motion
+graphics.
+
+### Font extraction from the site
+
+Check the site's `<head>` for `<link>` tags pointing to Google Fonts or
+other font CDNs:
+
+```html
+<link href="https://fonts.googleapis.com/css2?family=...&display=swap" ...>
+```
+
+If found, install the matching `@fontsource` package:
+
+```bash
+npm install @fontsource/<font-name>
+```
+
+If no font import is found in the HTML, the brand likely uses system
+fonts or a custom CDN. Pick a strong pairing (Anton + Poppins is the
+default) and **state it plainly**: "Could not identify brand fonts from
+the site; using Anton + Poppins as a fallback. Let me know if you have
+brand guidelines."
+
+### Anti-pattern: inventing brand assets
+
+The #1 way a reel ad looks unbranded is when the builder picks colors
+from memory or from a previous project's palette. This is a real,
+frequent failure mode. The rule:
+
+> **Never hardcode a hex color in the scene HTML without first
+> confirming it came from the brand's live site or an uploaded asset.**
+> If you can't point to the exact `<meta>` tag or CSS line that justifies
+> the color, you don't have permission to use it.
 
 ## Marquee / ticker (optional pattern)
 

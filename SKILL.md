@@ -12,6 +12,16 @@ named in the current request, pull that brand's real assets (site,
 uploaded logo, given copy), and never carry over a previous project's
 colors, fonts, or claims into a new one.
 
+## ⚠️ HARD GATE: Brand extraction before any video work
+
+**You must never write a single frame of video HTML until brand assets
+are confirmed.** Every brand video starts with Step 1 below. No
+exceptions. No shortcuts. No inventing colors or fonts from a guess.
+
+The skill is brand-agnostic — it works for *any* company the user runs.
+Each brand has its own real assets. Your job is to extract them, not
+imagine them.
+
 ## Before starting: read the reference files
 
 - `references/scene_architecture.md` -- the render(t) pattern, safe area,
@@ -51,19 +61,74 @@ brand's existing look before designing.
 
 ## Workflow
 
-### 1. Establish the brand
+### 1. Establish the brand — MANDATORY FIRST STEP
 
-If the user names a live site, `web_fetch` it (and any linked
-offers/pricing/case-study pages) for: accent color (check the
-`theme-color` meta tag first), logo, wordmark, tagline, real offers, and
-proof points. If a logo file is attached instead of/in addition to a
-site, use that as the source of truth for color and mark (see
-`scene_architecture.md` for cropping/embedding it).
+**This is a hard gate. Do not proceed to Step 2 until all three items
+below are confirmed.** If any item is missing, ask the user — do not
+invent it.
 
-If nothing is fetchable and no logo is provided, ask for a link or a
-logo upload rather than inventing brand colors/fonts from a guess --
-proceed with a clearly-labeled placeholder only if the user explicitly
-wants to move forward without real assets.
+#### 1a. Confirm the brand's live website URL
+
+Ask the user for the brand's website if not provided. If multiple
+domains exist (e.g. `brand.com`, `us.brand.com`, `eu.brand.com`),
+fetch the primary one the ad targets.
+
+#### 1b. Extract brand assets from the live site
+
+Run a thorough extraction **in this exact order**:
+
+| Asset | How to extract | Fallback |
+|-------|---------------|----------|
+| **Accent color** | `<meta name="theme-color" content="...">` — this is the single most reliable source | Fall back to the most frequent hex color in the page CSS (grep `#[0-9a-fA-F]{3,8}` and `count`). The brand's dominant accent is almost always the top non-neutral result. |
+| **Dark / background color** | Look for `bg-` classes, `background` CSS properties, or the hex that appears with `color` declarations alongside the accent | Default to `#050505` (near-black) if the site is dark-themed, `#ffffff` if light |
+| **Paper / light bg** | `#F4F1EA`-style warm off-white is common; sample from `bg-` classes in the site's HTML | Default to `#F4F1EA` |
+| **Logo URL** | `<link rel="icon" href="...">`, `<meta property="og:image">`, or any `<img>` with `logo` in its alt/path | Ask the user to upload |
+| **Wordmark / tagline** | Hero text, `<title>` tag, `<meta name="description">` | Ask the user |
+| **Fonts** | Check `<link>` tags for Google Fonts / @fontsource imports; inspect CSS for `font-family` declarations; grep for `@font-face` rules | Fall back to Anton + Poppins and state it plainly |
+
+**Automation script** — run this after fetching the site HTML:
+
+```bash
+# Extract all hex colors with frequency count
+curl -sL "https://<brand-domain>" | python3 -c "
+import sys, re
+from collections import Counter
+colors = re.findall(r'#[0-9a-fA-F]{3,8}', sys.stdin.read())
+for col, count in Counter(colors).most_common(15):
+    print(f'{col}: {count}x')
+"
+
+# Extract meta tags
+curl -sL "https://<brand-domain>" | grep -oiE 'theme-color|og:image|twitter:image|<link rel="icon"' -A1
+```
+
+#### 1c. Report what was extracted before proceeding
+
+Print a clear summary so the user can verify:
+
+```
+Brand: <name>
+Site:  https://<domain>
+Accent: #ff3300  (from theme-color meta tag, 35 occurrences)
+Dark:   #050505  (dominant bg color)
+Paper:  #f4f1ea  (secondary bg)
+Logo:   https://<domain>/favicon-32.png  (will be cropped + base64-embedded)
+Fonts:  Anton (display) + Poppins (body) — installed via @fontsource
+```
+
+If the user says "looks right" or confirms, **then** proceed to Step 2.
+If anything is wrong, fix it before continuing.
+
+#### What NOT to do
+
+- **Never invent brand colors.** If the site uses orange and you pick
+  blue, the video looks generic and unbranded. The cost of asking is
+  zero; the cost of guessing is a video the client rejects.
+- **Never skip the logo.** Even a favicon is better than no logo. Crop
+  and base64-embed it (see `scene_architecture.md` for the script).
+- **Never assume one brand's palette applies to another.** If you've
+  built an ad for brand A with red accents, brand B gets its own colors
+  extracted fresh from its own site.
 
 **Producing multiple videos for the same brand in one batch?** Stage the
 brand's cropped/base64 logo and embedded font CSS *once* in a shared
